@@ -14,9 +14,9 @@ module Solrengine
       DEFAULT_EXPIRED_TRANSFER_DEADLINE = 15 * 60 # seconds
       DEFAULT_TRANSFER_POLL_INTERVAL = 3 # seconds — confirmation is usually seconds away
 
-      attr_writer :api_key, :base_url, :custody_provider, :label_namespace
+      attr_writer :api_key, :base_url, :custody_provider, :label_namespace, :logger
       attr_accessor :user_class, :expired_transfer_deadline, :transfer_poll_interval,
-                    :broadcast_retry_delay, :broadcast_retries
+                    :broadcast_retry_delay, :broadcast_retries, :broadcast_targets
 
       def initialize
         @user_class = "User"
@@ -24,6 +24,10 @@ module Solrengine
         @transfer_poll_interval = DEFAULT_TRANSFER_POLL_INTERVAL
         @broadcast_retry_delay = 2
         @broadcast_retries = 3
+        # Ordered array of {name:, fetch:, render:} hashes — see Broadcaster.
+        # Empty by default: the Broadcaster logs a hint and broadcasts
+        # nothing until the app configures its targets.
+        @broadcast_targets = []
       end
 
       def api_key
@@ -50,6 +54,12 @@ module Solrengine
         Object.const_get(user_class)
       end
 
+      # Engine log sink: Rails.logger in a Rails host, $stdout otherwise.
+      # Tests assign a StringIO-backed logger to assert on log lines.
+      def logger
+        @logger ||= default_logger
+      end
+
       # Boot check used by the engine's after_initialize hook, also callable
       # directly. A missing key must fail loudly at boot, not at the first
       # wallet call.
@@ -64,6 +74,15 @@ module Solrengine
       end
 
       private
+
+      def default_logger
+        if defined?(Rails) && Rails.respond_to?(:logger) && Rails.logger
+          Rails.logger
+        else
+          require "logger"
+          ::Logger.new($stdout)
+        end
+      end
 
       def default_label_namespace
         name = rails_application_name

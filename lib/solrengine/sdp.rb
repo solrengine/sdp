@@ -1,11 +1,15 @@
 # frozen_string_literal: true
 
+require "bigdecimal"
 require "solana-sdp"
+require "solrengine/realtime"
 
 require_relative "sdp/version"
 require_relative "sdp/errors"
 require_relative "sdp/configuration"
 require_relative "sdp/wallet_owner"
+require_relative "sdp/broadcaster"
+require_relative "sdp/faucet"
 require_relative "sdp/engine" if defined?(Rails::Engine)
 
 module Solrengine
@@ -15,6 +19,11 @@ module Solrengine
     # Rake task prefixes for which the boot-time api_key check is skipped:
     # CI and Docker image builds run these without production secrets.
     EXEMPT_TASK_PREFIXES = %w[assets: db: app: tmp: log:].freeze
+
+    # Name this engine registers under on the solrengine-realtime subscriber
+    # registry (start_realtime!/stop_realtime!). Apps can register their own
+    # subscribers alongside it under their own names.
+    REALTIME_SUBSCRIBER_NAME = :solrengine_sdp
 
     class << self
       def configuration
@@ -82,6 +91,37 @@ module Solrengine
         Solrengine::Tokens::JupiterClient.fetch_prices([ mint ])[mint]
       rescue StandardError
         nil
+      end
+
+      # USD value for an Sdp::Balance (AE3): SDP's own usd_value when present
+      # (v0.29+ populates it), else derived from the optional tokens gem's
+      # Jupiter price, else nil. Price data is decorative — every failure
+      # path degrades to nil so a price hiccup can NEVER fail a broadcaster
+      # fetch or gate a money-movement broadcast.
+      def usd_value_for(balance)
+        usd = balance.usd_value
+        return usd unless usd.nil? || usd.to_s.empty?
+
+        price = price_for(balance.mint)
+        return nil unless price
+
+        BigDecimal(balance.ui_amount.to_s) * BigDecimal(price.to_s)
+      rescue StandardError
+        nil
+      end
+
+      # Registers the engine's Broadcaster on the solrengine-realtime
+      # subscriber registry: every account-change dispatch re-fetches and
+      # broadcasts for that wallet. Called by the watcher process
+      # (bin/sdp_watcher); idempotent — re-subscribing replaces the block.
+      def start_realtime!
+        Solrengine::Realtime.subscribe(REALTIME_SUBSCRIBER_NAME) do |wallet_address|
+          Broadcaster.call(wallet_address)
+        end
+      end
+
+      def stop_realtime!
+        Solrengine::Realtime.unsubscribe(REALTIME_SUBSCRIBER_NAME)
       end
     end
   end

@@ -1,0 +1,119 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# SDP realtime wallet watcher — run as its own process alongside your web
+# server (Procfile.dev: `watcher: bin/sdp_watcher`).
+#
+# Holds one accountSubscribe WebSocket per wallet-ready user. On any account
+# change, Solrengine::Sdp::Broadcaster re-fetches the displayed data from SDP
+# and pushes the app's configured Turbo Stream updates — the doorbell
+# pattern: the WebSocket carries no data, it only signals THAT something
+# changed.
+#
+# SOL-ONLY in v0.1: the system-account subscription sees lamport changes on
+# the wallet address itself. SPL token deposits land in Associated Token
+# Accounts this subscription does NOT see — token balances are still correct
+# on page load, they just don't ring the doorbell. ATA subscriptions are
+# planned follow-up work.
+#
+# Degradation contract: if this process isn't running, screens are correct on
+# load — they just don't update live.
+
+require_relative "../config/environment"
+
+SCAN_INTERVAL = 30 # seconds between wallet-ready re-scans (picks up new wallets)
+
+rpc = Solrengine::Rpc.configuration
+puts "[SdpWatcher] Network: #{rpc.network}"
+puts "[SdpWatcher] WS: #{rpc.ws_url.sub(/api-key=.*/, "api-key=***")}"
+
+# Register the engine's broadcaster on the realtime subscriber registry.
+Solrengine::Sdp.start_realtime!
+puts "[SdpWatcher] Broadcaster subscribed as #{Solrengine::Sdp::REALTIME_SUBSCRIBER_NAME.inspect}"
+
+# --- Boot-time broadcast self-check ------------------------------------------
+# A broadcast that raises here means the cable backend is broken (e.g. the
+# Solid Cable database is missing — run bin/rails db:prepare). Better to die
+# loudly now than to broadcast into the void all session.
+if defined?(Turbo)
+  Turbo::StreamsChannel.broadcast_replace_to(
+    "solrengine_sdp_ping", target: "solrengine_sdp_ping", html: ""
+  )
+  puts "[SdpWatcher] Cable self-check broadcast sent"
+
+  # The async adapter accepts broadcasts but delivers them IN-PROCESS ONLY:
+  # everything this watcher pushes would be silently dropped — no error, no
+  # log, the browser just never updates. Warn as loudly as we can.
+  cable = begin
+    ActionCable.server.config.cable
+  rescue StandardError
+    nil
+  end
+  adapter = cable && (cable["adapter"] || cable[:adapter])
+  if adapter.to_s == "async"
+    warn <<~MSG
+      [SdpWatcher] ################################################################
+      [SdpWatcher] # Action Cable is using the `async` adapter — IN-PROCESS ONLY #
+      [SdpWatcher] ################################################################
+      [SdpWatcher] Cross-process broadcasts from this watcher will be SILENTLY
+      [SdpWatcher] DROPPED: no error, no log, the browser simply never updates.
+      [SdpWatcher] Switch development to solid_cable (or redis) in config/cable.yml
+      [SdpWatcher] and RESTART your web server — a running Puma holds the old
+      [SdpWatcher] adapter in memory. See the solrengine-sdp README.
+    MSG
+  else
+    puts "[SdpWatcher] Cable adapter: #{adapter || "unknown"} (cross-process delivery OK)"
+  end
+else
+  warn "[SdpWatcher] turbo-rails is not loaded — broadcasts are no-ops. Add `gem \"turbo-rails\"`."
+end
+
+monitors = {}
+running = true
+
+%w[INT TERM].each do |signal|
+  trap(signal) { running = false }
+end
+
+user_model = Solrengine::Sdp.configuration.user_model
+
+while running
+  begin
+    addresses = user_model.wallet_ready.pluck(:wallet_address)
+
+    addresses.each do |address|
+      next if monitors[address]
+
+      puts "[SdpWatcher] Subscribing to #{address}"
+      monitor = Solrengine::Realtime::AccountMonitor.new(address)
+      monitor.start
+      monitors[address] = monitor
+
+      # Re-fetch-and-broadcast on every NEW subscription: the wallet may have
+      # changed before we started watching (post-provisioning funding lag, or
+      # this watcher restarting). On its own thread — the broadcaster sleeps
+      # between retries and must not stall the scan loop.
+      Thread.new { Solrengine::Sdp::Broadcaster.call(address) }
+    rescue ArgumentError => e
+      # One malformed address must not poison the whole scan pass — log it
+      # and keep subscribing the rest (AccountMonitor validates base58).
+      puts "[SdpWatcher] Skipping #{address.inspect}: #{e.message}"
+    end
+
+    (monitors.keys - addresses).each do |address|
+      puts "[SdpWatcher] Unsubscribing from #{address}"
+      monitors.delete(address).stop
+    end
+  rescue => e
+    puts "[SdpWatcher] Scan error: #{e.class}: #{e.message}"
+  end
+
+  SCAN_INTERVAL.times do
+    break unless running
+    sleep 1
+  end
+end
+
+puts "[SdpWatcher] Shutting down…"
+monitors.each_value(&:stop)
+Solrengine::Sdp.stop_realtime!
