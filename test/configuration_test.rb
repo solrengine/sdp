@@ -11,6 +11,7 @@ class ConfigurationTest < Minitest::Test
 
   def teardown
     Solrengine::Sdp.reset_configuration!
+    super # webmock/minitest resets stubs + request history in Minitest::Test#teardown
   end
 
   # --- ENV fallbacks -------------------------------------------------------

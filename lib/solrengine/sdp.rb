@@ -4,6 +4,7 @@ require "solana-sdp"
 
 require_relative "sdp/version"
 require_relative "sdp/configuration"
+require_relative "sdp/wallet_owner"
 require_relative "sdp/engine" if defined?(Rails::Engine)
 
 module Solrengine
