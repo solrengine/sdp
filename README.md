@@ -189,6 +189,7 @@ Note: until solana-sdp and the realtime 0.2 branch are pushed to GitHub, CI's si
 ## See also
 
 - [solana-sdp](https://github.com/solrengine/solana-sdp) — the plain-Ruby SDP API client this engine builds on (usable without Rails).
+- [solrengine](https://github.com/solrengine/solrengine) — the meta-gem for the connect-your-wallet path; this engine is deliberately not among its dependencies (custodial mode is opt-in).
 - [solrengine.org](https://solrengine.org) — the SolRengine family: the connect-your-wallet stack, and how both custody models compose.
 
 ## License
