@@ -2,8 +2,11 @@
 
 # Standalone minitest — family convention: no dummy Rails app. Rails pieces
 # are loaded individually (active_record / active_job / active_support), so
-# Rails::Engine is never defined here and lib/solrengine/sdp.rb skips the
-# engine require. The Configuration class is tested directly.
+# Rails::Engine is not defined when this file loads and lib/solrengine/sdp.rb
+# skips the engine require. The Configuration class is tested directly.
+# NOTE: install_generator_test.rb later requires railties (rails/generators),
+# so `defined?(Rails)` may be true across the suite — but Rails.application
+# stays nil; tests must key off the application, never the constant.
 require "minitest/autorun"
 require "webmock/minitest"
 require "active_support"

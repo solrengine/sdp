@@ -64,8 +64,11 @@ class ConfigurationTest < Minitest::Test
     assert_equal 3, config.broadcast_retries
   end
 
-  def test_label_namespace_defaults_to_app_without_rails
-    refute defined?(Rails), "suite assumes Rails is not loaded"
+  def test_label_namespace_defaults_to_app_without_rails_application
+    # The generator tests load railties, so the Rails constant may exist —
+    # but the suite never boots an application, which is what the default is
+    # keyed on.
+    assert_nil Rails.application if defined?(Rails) && Rails.respond_to?(:application)
     assert_equal "app", Solrengine::Sdp::Configuration.new.label_namespace
   end
 

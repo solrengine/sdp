@@ -1,0 +1,23 @@
+# Created by solrengine:sdp:install.
+#
+# Rails' default `async` adapter delivers broadcasts IN-PROCESS ONLY:
+# everything bin/sdp_watcher pushes from its own process would be silently
+# dropped. Solid Cable relays through the database and works across
+# processes. With no `connects_to`, development uses the primary database —
+# the solid_cable_messages table must exist there (see the solrengine-sdp
+# README, "Cable adapter").
+development:
+  adapter: solid_cable
+  polling_interval: 0.1.seconds
+  message_retention: 1.hour
+
+test:
+  adapter: test
+
+production:
+  adapter: solid_cable
+  connects_to:
+    database:
+      writing: cable
+  polling_interval: 0.1.seconds
+  message_retention: 1.day
