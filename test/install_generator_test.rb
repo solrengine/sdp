@@ -160,6 +160,22 @@ class InstallGeneratorTest < Rails::Generators::TestCase
     assert_equal cable, File.read(File.join(destination_root, "config/cable.yml"))
   end
 
+  # Exercises the `else` branch in configure_cable_adapter:
+  # development_cable_adapter rescues Psych::Exception and returns nil,
+  # which satisfies neither `adapter == "async"` nor the non-empty-string
+  # guard, so the generator refuses with "could not determine" and leaves
+  # the file exactly as it found it.
+  def test_refuses_and_leaves_file_unchanged_when_cable_yml_is_unparseable
+    cable = "development:\n  adapter: async\n  invalid: [unclosed\n"
+    write_destination_file "config/cable.yml", cable
+
+    output = run_generator
+
+    assert_match(/NOT touching config\/cable\.yml/, output)
+    assert_match(/could not determine the development adapter/, output)
+    assert_equal cable, File.read(File.join(destination_root, "config/cable.yml"))
+  end
+
   private
 
   def write_destination_file(relative_path, content)

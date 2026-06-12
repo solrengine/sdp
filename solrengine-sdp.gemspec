@@ -15,7 +15,7 @@ Gem::Specification.new do |spec|
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = spec.homepage
 
-  spec.files = Dir["lib/**/*", "app/**/*", "config/**/*", "LICENSE.txt", "README.md"]
+  spec.files = Dir["lib/**/*", "app/**/*", "config/**/*", "LICENSE", "README.md"]
   spec.require_paths = [ "lib" ]
 
   spec.add_dependency "rails", ">= 7.1"

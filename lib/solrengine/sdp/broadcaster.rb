@@ -76,7 +76,19 @@ module Solrengine
           return
         end
 
-        user = configuration.user_model.wallet_ready.find_by(wallet_address: @wallet_address)
+        # This executes on a long-lived per-wallet broadcast thread
+        # (solrengine-realtime), NOT inside an HTTP request. Rails only
+        # auto-releases AR connections at request boundaries, so a bare
+        # find_by here permanently holds a connection on the thread.  With
+        # a default pool of 5 that means the sixth wallet's broadcast
+        # raises ConnectionTimeoutError — rescued by the realtime registry
+        # and silently dropped. with_connection returns the lease to the
+        # pool as soon as the block exits, before the fetch/render/sleep
+        # cycle starts. App-provided fetch lambdas may also touch the DB;
+        # that is the app's concern and is intentionally out of this scope.
+        user = ActiveRecord::Base.connection_pool.with_connection do
+          configuration.user_model.wallet_ready.find_by(wallet_address: @wallet_address)
+        end
         return unless user
 
         attempts = configuration.broadcast_retries

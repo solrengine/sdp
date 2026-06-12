@@ -55,8 +55,10 @@ module Solrengine
       validates :source_wallet_id, :destination, :token, :amount, :memo_token, presence: true
       validates :status, inclusion: { in: STATUSES }
 
-      # Rows TrackTransferJob still owes a verdict on.
-      scope :unsettled, -> { where(status: %w[processing unknown]) }
+      # Rows TrackTransferJob still owes a verdict on — includes confirmed,
+      # which is user-facing success but not yet finalized (tracking continues
+      # until SDP reports finalized).
+      scope :unsettled, -> { where.not(status: TERMINAL_STATUSES) }
       scope :terminal, -> { where(status: TERMINAL_STATUSES) }
 
       class << self

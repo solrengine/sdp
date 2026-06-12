@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "stringio"
 
 # ActiveSupport::TestCase (not bare Minitest::Test): ActiveJob::TestHelper's
 # assertions lean on its tagged-logging plumbing.
@@ -106,6 +107,35 @@ class WalletOwnerTest < ActiveSupport::TestCase
     assert_no_enqueued_jobs do
       refute user.provision_wallet!
     end
+  end
+
+  def test_provision_wallet_noop_logs_to_configured_logger_when_ready
+    log = StringIO.new
+    Solrengine::Sdp.configure { |config| config.logger = ActiveSupport::Logger.new(log) }
+    user = User.create!(email: "a@example.com", sdp_provisioning_state: "ready")
+
+    refute user.provision_wallet!
+
+    assert_match(/\[Solrengine::Sdp\] provision_wallet! no-op for User##{user.id}/, log.string)
+    assert_match(/state is ready/, log.string)
+  end
+
+  def test_provision_wallet_noop_logs_to_configured_logger_when_provisioning
+    log = StringIO.new
+    Solrengine::Sdp.configure { |config| config.logger = ActiveSupport::Logger.new(log) }
+    user = User.create!(email: "a@example.com", sdp_provisioning_state: "provisioning")
+
+    refute user.provision_wallet!
+
+    assert_match(/state is provisioning/, log.string)
+  end
+
+  def test_provision_wallet_noop_logs_to_default_stdout_logger_when_unconfigured
+    # Configuration#logger lazily builds a $stdout default, so the logger is
+    # never nil — the no-op message lands on stdout out of the box.
+    user = User.create!(email: "a@example.com", sdp_provisioning_state: "ready")
+
+    assert_output(/state is ready/) { refute user.provision_wallet! }
   end
 
   def test_provision_wallet_re_enqueues_from_failed

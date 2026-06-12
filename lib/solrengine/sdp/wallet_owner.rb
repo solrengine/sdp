@@ -73,7 +73,7 @@ module Solrengine
       # reset via retry_provisioning! is equivalent but also clears the error.
       def provision_wallet!
         if wallet_ready? || wallet_provisioning?
-          self.class.logger&.info(
+          Solrengine::Sdp.configuration.logger&.info(
             "[Solrengine::Sdp] provision_wallet! no-op for #{self.class.name}##{id}: " \
             "state is #{wallet_provisioning_state}"
           )

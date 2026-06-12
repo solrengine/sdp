@@ -154,6 +154,45 @@ class TransferTest < ActiveSupport::TestCase
     assert_enqueued_with(job: Solrengine::Sdp::TrackTransferJob, args: [ transfer ])
   end
 
+  def test_signing_pending_202_with_id_key_falls_back_to_sdp_id
+    # details has { id: } but no { transferId: } — implementation reads
+    # e.details[:transfer_id] || e.details[:id], so :id is the fallback.
+    stub_sol_balance("10")
+    stub_request(:post, TRANSFERS_URL).to_return(
+      status: 202, headers: JSON_HEADERS,
+      body: {
+        error: { code: "SIGNING_PENDING", message: "Awaiting additional signatures",
+                 details: { id: "tr_9" } },
+        meta: {}
+      }.to_json
+    )
+
+    transfer = execute_transfer
+
+    assert transfer.processing?
+    assert_equal "tr_9", transfer.sdp_transfer_id
+    assert_enqueued_with(job: Solrengine::Sdp::TrackTransferJob, args: [ transfer ])
+  end
+
+  def test_signing_pending_202_with_non_hash_details_stays_processing_with_nil_id
+    stub_sol_balance("10")
+    stub_request(:post, TRANSFERS_URL).to_return(
+      status: 202, headers: JSON_HEADERS,
+      body: {
+        error: { code: "SIGNING_PENDING", message: "Awaiting additional signatures",
+                 details: "awaiting" },
+        meta: {}
+      }.to_json
+    )
+
+    transfer = execute_transfer
+
+    assert transfer.processing?
+    assert_nil transfer.sdp_transfer_id
+    assert transfer.sdp_error.start_with?("signing_pending:")
+    assert_enqueued_with(job: Solrengine::Sdp::TrackTransferJob, args: [ transfer ])
+  end
+
   # --- balance preflight ---------------------------------------------------------
 
   def test_insufficient_balance_raises_without_creating_a_row_or_posting
@@ -192,6 +231,22 @@ class TransferTest < ActiveSupport::TestCase
 
     assert transfer.processing?
     assert_requested :post, TRANSFERS_URL
+  end
+
+  # --- non-SOL token: preflight is skipped entirely ----------------------------
+
+  def test_non_sol_token_skips_balance_preflight_and_posts_directly
+    # No balance stub registered — WebMock strict mode will raise if the GET fires.
+    stub_pending_create
+
+    transfer = Solrengine::Sdp::Transfer.execute!(
+      source: "wal_src", destination: "Dest58Base", amount: "5", token: "USDC"
+    )
+
+    assert transfer.processing?
+    assert_equal "tr_1", transfer.sdp_transfer_id
+    assert_not_requested :get, BALANCES_URL
+    assert_enqueued_with(job: Solrengine::Sdp::TrackTransferJob, args: [ transfer ])
   end
 
   # --- memo composition ------------------------------------------------------------
@@ -271,7 +326,7 @@ class TransferTest < ActiveSupport::TestCase
         memo_token: "sdp-#{status}", status: status
       )
     end
-    assert_equal [ rows["processing"], rows["unknown"] ].map(&:id).sort,
+    assert_equal [ rows["processing"], rows["confirmed"], rows["unknown"] ].map(&:id).sort,
                  Solrengine::Sdp::Transfer.unsettled.pluck(:id).sort
     assert_equal [ rows["finalized"], rows["failed"], rows["expired"] ].map(&:id).sort,
                  Solrengine::Sdp::Transfer.terminal.pluck(:id).sort

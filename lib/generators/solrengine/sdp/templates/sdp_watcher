@@ -93,7 +93,11 @@ while running
       # changed before we started watching (post-provisioning funding lag, or
       # this watcher restarting). On its own thread — the broadcaster sleeps
       # between retries and must not stall the scan loop.
-      Thread.new { Solrengine::Sdp::Broadcaster.call(address) }
+      Thread.new do
+        Solrengine::Sdp::Broadcaster.call(address)
+      rescue => e
+        puts "[SdpWatcher] Catch-up broadcast for #{address.inspect} failed: #{e.class}: #{e.message}"
+      end
     rescue ArgumentError => e
       # One malformed address must not poison the whole scan pass — log it
       # and keep subscribing the rest (AccountMonitor validates base58).

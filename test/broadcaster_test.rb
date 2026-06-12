@@ -208,6 +208,28 @@ class BroadcasterTest < ActiveSupport::TestCase
     end
   end
 
+  # --- connection pool hygiene (P2 fix) -----------------------------------------
+  #
+  # Broadcaster.call is invoked on a long-lived per-wallet broadcast thread by
+  # solrengine-realtime. Rails only auto-releases AR connections at request
+  # boundaries; without with_connection the user lookup permanently holds one per
+  # thread and the pool (default 5) exhausts on the sixth wallet. In-memory SQLite
+  # is per-connection, so a spawned thread's fresh connection would see an empty
+  # database — the lease semantics are asserted on the main thread instead:
+  # release_connection returns this thread's lease, and with_connection inside
+  # call must check out and return rather than leave a connection claimed.
+  def test_broadcaster_call_releases_ar_connection_after_user_lookup
+    configure_targets(recording_target(:balance))
+    ActiveRecord::Base.connection_pool.release_connection
+
+    Solrengine::Sdp::Broadcaster.call(ADDRESS)
+
+    refute ActiveRecord::Base.connection_pool.active_connection?,
+      "Broadcaster left an AR connection checked out — the long-lived " \
+      "broadcast thread would exhaust the pool at pool-size wallets " \
+      "without with_connection"
+  end
+
   def test_per_call_targets_override_the_configured_ones
     configure_targets(recording_target(:configured))
 

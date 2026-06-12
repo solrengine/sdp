@@ -11,11 +11,21 @@ module Solrengine
     #     "expired" (SDP has no such status). confirmed keeps tracking —
     #     it is user-facing success, but finalized is the terminal verdict.
     #
-    #   unknown (the create POST read-timed out) → reconcile: scan the source
-    #     wallet's transfers for the engine memo token. Found → adopt the SDP
-    #     row and keep tracking; not found past the deadline → settle as
-    #     failed "unsent (reconcile exhausted)"; not found within it →
-    #     re-enqueue and scan again.
+    #   unknown (the create POST read-timed out, the row never got an SDP id,
+    #     or SDP 404ed the id we had) → reconcile: scan the source wallet's
+    #     transfers for the engine memo token. Found → adopt the SDP row and
+    #     keep tracking; not found → re-enqueue and scan again until the
+    #     deadline settles it as failed "unsent (reconcile exhausted)".
+    #
+    # Deadline exhaustion is checked at the top of perform, BEFORE any SDP
+    # I/O, so an SDP outage can never keep a row unsettled past its deadline
+    # (an in-poll check would only fire after a successful GET).
+    #
+    # API errors never orphan a row (mirrors ProvisionWalletJob's posture):
+    # Unavailable/Timeout propagate to retry_on; NotFound flips the row to
+    # "unknown" so the memo token — not a 404 poll loop — decides; any other
+    # Sdp::Error re-enqueues within the deadline and settles the row failed
+    # (message renderable) past it.
     #
     # Backoff: a simple fixed wait (Configuration#transfer_poll_interval,
     # default 3s) rather than exponential — Solana confirmation latency is
@@ -47,29 +57,70 @@ module Solrengine
 
       def perform(transfer)
         return if transfer.terminal?
+        return if settle_past_deadline(transfer)
 
         if transfer.unknown?
           reconcile(transfer)
         else
           poll(transfer)
         end
+      rescue ::Sdp::Unavailable, ::Sdp::Timeout
+        raise # transport: retry_on owns backoff and the exhaustion handoff
+      rescue ::Sdp::NotFound
+        # The id provably doesn't exist at SDP — polling it would 404
+        # forever. Reconcile by memo token instead: it positively identifies
+        # OUR attempt (found → adopt; never found → the deadline settles
+        # the row as unsent).
+        transfer.update!(status: "unknown")
+        reenqueue(transfer)
+      rescue ::Sdp::Error => e
+        # Auth/rate-limit/validation errors must never strand the row in a
+        # dead-letter: within the deadline they read as an API hiccup —
+        # re-enqueue and try again; past it the row settles failed with the
+        # renderable reason.
+        if past_deadline?(transfer)
+          transfer.settle!("failed", sdp_error: e.message)
+        else
+          reenqueue(transfer)
+        end
       end
 
       private
 
-      def poll(transfer)
-        transfer.adopt!(Solrengine::Sdp.client.get_transfer(transfer.sdp_transfer_id))
-        return if transfer.terminal?
+      # Deadline exhaustion, decided BEFORE any SDP I/O so the verdict lands
+      # even while SDP is down. Only processing rows expire — a confirmed row
+      # past the deadline is user-facing success already; expiring it would
+      # retract money the user saw move, so it keeps polling for finalized.
+      # Returns true when the row was settled.
+      def settle_past_deadline(transfer)
+        return false unless past_deadline?(transfer)
 
-        # Only processing rows expire. A confirmed row past the deadline is
-        # user-facing success already — expiring it would retract money the
-        # user saw move; we keep polling for finalized instead.
-        if transfer.processing? && past_deadline?(transfer)
+        if transfer.processing?
           transfer.settle!("expired")
-          return
+        elsif transfer.unknown?
+          # Reuses expired_transfer_deadline as the reconcile deadline: if
+          # the transfer existed, the scan would have found the memo token
+          # by now.
+          transfer.settle!("failed", sdp_error: "unsent (reconcile exhausted)")
+        else
+          return false
         end
 
-        reenqueue(transfer)
+        true
+      end
+
+      def poll(transfer)
+        # A SigningPending 202 whose details carried no id leaves a
+        # processing row with no sdp_transfer_id — there is nothing to GET
+        # (get_transfer(nil) is a malformed URL). Flip to "unknown" and
+        # reconcile by memo token, exactly like a timed-out create.
+        if transfer.sdp_transfer_id.nil?
+          transfer.update!(status: "unknown")
+          return reconcile(transfer)
+        end
+
+        transfer.adopt!(Solrengine::Sdp.client.get_transfer(transfer.sdp_transfer_id))
+        reenqueue(transfer) unless transfer.terminal?
       end
 
       def reconcile(transfer)
@@ -78,11 +129,9 @@ module Solrengine
         if match
           transfer.adopt!(match)
           reenqueue(transfer) unless transfer.terminal?
-        elsif past_deadline?(transfer)
-          # Reuses expired_transfer_deadline as the reconcile deadline: if the
-          # transfer existed, the scan would have found the memo token by now.
-          transfer.settle!("failed", sdp_error: "unsent (reconcile exhausted)")
         else
+          # Deadline exhaustion settles in perform, before any I/O; within
+          # the deadline, scan again next interval.
           reenqueue(transfer)
         end
       end

@@ -93,8 +93,9 @@ class TrackTransferJobTest < ActiveSupport::TestCase
   # --- engine-local expired ---------------------------------------------------------
 
   def test_stuck_processing_past_deadline_expires_terminally
+    # No stub on purpose: expiry is decided before any SDP I/O, so any HTTP
+    # call here would raise a WebMock NetConnectNotAllowedError.
     transfer = create_row(submitted_at: 16.minutes.ago) # default deadline: 15 minutes
-    stub_get_transfer(status: "processing")
 
     perform_track(transfer)
 
@@ -105,8 +106,24 @@ class TrackTransferJobTest < ActiveSupport::TestCase
     assert_equal 0, enqueued_jobs.size
   end
 
-  def test_confirmed_past_deadline_does_not_expire_and_keeps_tracking
+  def test_processing_past_deadline_expires_even_while_sdp_is_down
     transfer = create_row(submitted_at: 16.minutes.ago)
+    stub_request(:get, TRANSFER_URL).to_return(status: 503)
+
+    perform_track(transfer)
+
+    transfer.reload
+    assert transfer.expired?, "expiry must not depend on a successful GET — it never fires during an outage otherwise"
+    assert_not_nil transfer.settled_at
+    assert_not_requested :get, TRANSFER_URL
+    assert_equal 0, enqueued_jobs.size
+  end
+
+  def test_confirmed_past_deadline_does_not_expire_and_keeps_tracking
+    # Row must already be confirmed: the pre-I/O deadline guard expires
+    # processing rows before any GET, so a processing fixture would never
+    # reach the confirmed-keeps-tracking branch this test pins.
+    transfer = create_row(status: "confirmed", signature: "5sig", submitted_at: 16.minutes.ago)
     stub_get_transfer(status: "confirmed", signature: "5sig")
 
     perform_track(transfer)
@@ -158,13 +175,10 @@ class TrackTransferJobTest < ActiveSupport::TestCase
   end
 
   def test_reconcile_without_match_past_deadline_settles_failed_unsent
+    # No stub on purpose: reconcile exhaustion is decided before any SDP I/O,
+    # so any HTTP call here would raise a WebMock NetConnectNotAllowedError.
     transfer = create_row(status: "unknown", sdp_transfer_id: nil,
                           memo_token: "sdp-abc123", submitted_at: 16.minutes.ago)
-    stub_list_page(
-      query: { "wallet" => "wal_src" },
-      rows: [ { id: "tr_other", status: "confirmed", memo: "not ours" } ],
-      meta: { hasMore: false, page: 1 }
-    )
 
     perform_track(transfer)
 
@@ -183,6 +197,79 @@ class TrackTransferJobTest < ActiveSupport::TestCase
 
     transfer.reload
     assert transfer.unknown?
+    assert_enqueued_with(job: Solrengine::Sdp::TrackTransferJob, args: [ transfer ])
+  end
+
+  def test_unknown_past_deadline_settles_unsent_even_while_sdp_is_down
+    transfer = create_row(status: "unknown", sdp_transfer_id: nil,
+                          memo_token: "sdp-abc123", submitted_at: 16.minutes.ago)
+    stub_request(:get, TRANSFERS_URL).with(query: { "wallet" => "wal_src" }).to_return(status: 503)
+
+    perform_track(transfer)
+
+    transfer.reload
+    assert transfer.failed?, "an outage must not keep an unknown row alive past the reconcile deadline"
+    assert_equal "unsent (reconcile exhausted)", transfer.sdp_error
+    assert_not_nil transfer.settled_at
+    assert_equal 0, enqueued_jobs.size
+  end
+
+  def test_processing_row_without_sdp_id_reconciles_via_memo_token
+    # A SigningPending 202 with no id in its details leaves a processing row
+    # with no sdp_transfer_id — get_transfer(nil) would hit a malformed URL,
+    # so the job must reconcile by memo token instead.
+    transfer = create_row(sdp_transfer_id: nil, memo_token: "sdp-abc123")
+    stub_list_page(
+      query: { "wallet" => "wal_src" },
+      rows: [ { id: "tr_42", status: "processing", memo: "rent | sdp-abc123" } ],
+      meta: { hasMore: false, page: 1 }
+    )
+
+    perform_track(transfer)
+
+    transfer.reload
+    assert transfer.processing?
+    assert_equal "tr_42", transfer.sdp_transfer_id, "adopted the SDP row found by memo token"
+    assert_enqueued_with(job: Solrengine::Sdp::TrackTransferJob, args: [ transfer ])
+  end
+
+  # --- API errors never strand a row -------------------------------------------------
+
+  def test_404_on_get_transfer_flips_to_unknown_for_memo_reconciliation
+    transfer = create_row
+    stub_request(:get, TRANSFER_URL).to_return(status: 404)
+
+    perform_track(transfer)
+
+    transfer.reload
+    assert transfer.unknown?, "a 404 means the id provably doesn't exist — the memo token decides, not a 404 poll loop"
+    assert_enqueued_with(job: Solrengine::Sdp::TrackTransferJob, args: [ transfer ])
+  end
+
+  def test_non_transport_error_past_deadline_settles_failed_with_the_reason
+    # A confirmed row is the one state that still polls past the deadline
+    # (processing expires and unknown settles unsent before any I/O), so it
+    # is where a persistent API error must finally land a verdict.
+    transfer = create_row(status: "confirmed", signature: "5sig", submitted_at: 16.minutes.ago)
+    stub_request(:get, TRANSFER_URL).to_return(status: 401)
+
+    perform_track(transfer)
+
+    transfer.reload
+    assert transfer.failed?
+    assert_match(/HTTP 401/, transfer.sdp_error)
+    assert_not_nil transfer.settled_at
+    assert_equal 0, enqueued_jobs.size
+  end
+
+  def test_rate_limited_within_deadline_reenqueues_without_touching_the_row
+    transfer = create_row
+    stub_request(:get, TRANSFER_URL).to_return(status: 429)
+
+    perform_track(transfer)
+
+    transfer.reload
+    assert transfer.processing?, "no verdict invented from a rate limit"
     assert_enqueued_with(job: Solrengine::Sdp::TrackTransferJob, args: [ transfer ])
   end
 
