@@ -3,6 +3,7 @@
 require "solana-sdp"
 
 require_relative "sdp/version"
+require_relative "sdp/errors"
 require_relative "sdp/configuration"
 require_relative "sdp/wallet_owner"
 require_relative "sdp/engine" if defined?(Rails::Engine)
@@ -11,9 +12,6 @@ module Solrengine
   # Rails engine for custodial Solana wallets backed by the Solana Developer
   # Platform (SDP). Composes the solana-sdp client with the solrengine family.
   module Sdp
-    class Error < StandardError; end
-    class ConfigurationError < Error; end
-
     # Rake task prefixes for which the boot-time api_key check is skipped:
     # CI and Docker image builds run these without production secrets.
     EXEMPT_TASK_PREFIXES = %w[assets: db: app: tmp: log:].freeze

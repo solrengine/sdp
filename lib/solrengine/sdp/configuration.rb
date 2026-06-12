@@ -12,14 +12,16 @@ module Solrengine
     class Configuration
       DEFAULT_BASE_URL = "http://127.0.0.1:8787"
       DEFAULT_EXPIRED_TRANSFER_DEADLINE = 15 * 60 # seconds
+      DEFAULT_TRANSFER_POLL_INTERVAL = 3 # seconds — confirmation is usually seconds away
 
       attr_writer :api_key, :base_url, :custody_provider, :label_namespace
-      attr_accessor :user_class, :expired_transfer_deadline,
+      attr_accessor :user_class, :expired_transfer_deadline, :transfer_poll_interval,
                     :broadcast_retry_delay, :broadcast_retries
 
       def initialize
         @user_class = "User"
         @expired_transfer_deadline = DEFAULT_EXPIRED_TRANSFER_DEADLINE
+        @transfer_poll_interval = DEFAULT_TRANSFER_POLL_INTERVAL
         @broadcast_retry_delay = 2
         @broadcast_retries = 3
       end
