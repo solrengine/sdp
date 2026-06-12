@@ -10,7 +10,9 @@ module Solrengine
     #   1. The row is already ready → return immediately.
     #   2. Optimistic claim: only the job that flips the row pending/failed →
     #      provisioning proceeds; a duplicate concurrent job updates 0 rows
-    #      and returns without touching the network.
+    #      and returns without touching the network. A provisioning row whose
+    #      lease has lapsed (worker died between claim and settle) may be
+    #      taken over — see #claim.
     #   3. Label adoption: when SDP already has a wallet labeled
     #      "#{namespace}-user-#{id}" (a previous create succeeded but the
     #      response was lost, e.g. a read timeout), adopt it instead of
@@ -79,13 +81,29 @@ module Solrengine
       # concurrent job does — return without any network traffic. Retry
       # executions (executions > 1) may resume from provisioning, because the
       # claim was kept across the transient failure that triggered the retry.
+      #
+      # Stale-claim takeover: ANY execution (fresh jobs included, not just
+      # retries) may also take over a provisioning row whose updated_at is
+      # older than Configuration#provisioning_lease — a worker that died
+      # between claim and settle would otherwise strand the row forever.
+      # Takeover is safe because label adoption makes re-running safe: a
+      # completed-but-unrecorded create is adopted by label, so takeover
+      # cannot double-provision. And the lease prevents takeover of a LIVE
+      # job — every claim renews updated_at, and any live job's retries and
+      # settles touch updated_at well within the lease.
       def claim(user)
         claimable = %w[pending failed]
         claimable += [ "provisioning" ] if executions > 1
 
+        lease_cutoff = Time.current - Solrengine::Sdp.configuration.provisioning_lease
+
         user.class
             .where(id: user.id, sdp_provisioning_state: claimable)
-            .update_all(sdp_provisioning_state: "provisioning") == 1
+            .or(
+              user.class.where(id: user.id, sdp_provisioning_state: "provisioning")
+                        .where(updated_at: ..lease_cutoff)
+            )
+            .update_all(sdp_provisioning_state: "provisioning", updated_at: Time.current) == 1
       end
 
       # GET /v1/wallets is not paginated at SDP v0.28 — the full list comes

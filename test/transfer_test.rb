@@ -332,7 +332,48 @@ class TransferTest < ActiveSupport::TestCase
                  Solrengine::Sdp::Transfer.terminal.pluck(:id).sort
   end
 
+  # --- resume_tracking! --------------------------------------------------------
+
+  def test_resume_tracking_enqueues_stale_unsettled_rows_and_returns_the_count
+    transfer = create_row(status: "processing", memo_token: "sdp-stale")
+    # update_column: a touch would put the row back inside the active-tracking
+    # window. 10s > 2 × the default 3s poll interval.
+    transfer.update_column(:updated_at, 10.seconds.ago)
+
+    count = nil
+    assert_enqueued_with(job: Solrengine::Sdp::TrackTransferJob, args: [ transfer ]) do
+      count = Solrengine::Sdp::Transfer.resume_tracking!
+    end
+    assert_equal 1, count
+  end
+
+  def test_resume_tracking_skips_terminal_rows
+    row = create_row(status: "finalized", memo_token: "sdp-final")
+    row.update_column(:updated_at, 10.seconds.ago)
+
+    assert_no_enqueued_jobs do
+      assert_equal 0, Solrengine::Sdp::Transfer.resume_tracking!
+    end
+  end
+
+  def test_resume_tracking_skips_recently_touched_rows
+    # updated_at is "now": an active tracker just touched the row — enqueueing
+    # again would double-track it.
+    create_row(status: "processing", memo_token: "sdp-live")
+
+    assert_no_enqueued_jobs do
+      assert_equal 0, Solrengine::Sdp::Transfer.resume_tracking!
+    end
+  end
+
   private
+
+  def create_row(status:, memo_token:)
+    Solrengine::Sdp::Transfer.create!(
+      source_wallet_id: "wal_src", destination: "Dest58Base", token: "SOL", amount: "1",
+      memo_token: memo_token, status: status, submitted_at: Time.current
+    )
+  end
 
   def execute_transfer(amount: "1", memo: nil)
     Solrengine::Sdp::Transfer.execute!(

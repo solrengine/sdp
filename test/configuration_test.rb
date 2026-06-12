@@ -60,6 +60,8 @@ class ConfigurationTest < Minitest::Test
 
     assert_equal "User", config.user_class
     assert_equal 15 * 60, config.expired_transfer_deadline
+    assert_equal 3, config.transfer_poll_interval
+    assert_equal 10 * 60, config.provisioning_lease
     assert_equal 2, config.broadcast_retry_delay
     assert_equal 3, config.broadcast_retries
   end

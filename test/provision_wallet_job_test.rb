@@ -107,6 +107,8 @@ class ProvisionWalletJobTest < ActiveSupport::TestCase
   end
 
   def test_duplicate_job_cannot_steal_a_held_claim
+    # updated_at is "now" (just created): the lease is live, so a fresh job
+    # must leave the row to the worker that owns it.
     user = User.create!(email: "a@example.com", sdp_provisioning_state: "provisioning")
 
     Solrengine::Sdp::ProvisionWalletJob.perform_now(user) # claim fails → no HTTP (nothing stubbed)
@@ -115,6 +117,36 @@ class ProvisionWalletJobTest < ActiveSupport::TestCase
     user.reload
     assert user.wallet_provisioning? # untouched: the owning job will settle it
     assert_nil user.sdp_wallet_id
+  end
+
+  # --- stale-claim lease takeover -----------------------------------------------
+
+  def test_fresh_job_takes_over_a_stale_provisioning_claim_and_adopts_by_label
+    # A worker died between claim and settle: the row is stuck in
+    # provisioning with an updated_at past the lease (default 600s).
+    user = User.create!(email: "a@example.com", sdp_provisioning_state: "provisioning")
+    user.update_column(:updated_at, 11.minutes.ago) # update_column: must NOT renew the lease
+
+    # The dead worker's create may have SUCCEEDED before it died — the list
+    # returns the wallet by label, and adoption (not a second create) proves
+    # takeover can never double-provision.
+    stub_request(:get, WALLETS_URL).to_return(
+      status: 200, headers: JSON_HEADERS,
+      body: {
+        data: { wallets: [
+          { walletId: "wal_adopted", publicKey: "PubKeyAdopted", label: user.sdp_wallet_label, status: "active" }
+        ] },
+        meta: {}
+      }.to_json
+    )
+
+    Solrengine::Sdp::ProvisionWalletJob.perform_now(user) # fresh job (executions 1), not a retry
+
+    assert_not_requested :post, WALLETS_URL
+    user.reload
+    assert user.wallet_ready?
+    assert_equal "wal_adopted", user.sdp_wallet_id
+    assert_equal "PubKeyAdopted", user.wallet_address
   end
 
   # --- transport retries -------------------------------------------------------------

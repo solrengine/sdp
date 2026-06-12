@@ -146,6 +146,17 @@ class WalletOwnerTest < ActiveSupport::TestCase
     end
   end
 
+  def test_provision_wallet_re_enqueues_from_stale_provisioning
+    # The claiming worker died: updated_at is past the lease (default 600s),
+    # so the row is abandoned, not owned — re-enqueue instead of no-op.
+    user = User.create!(email: "a@example.com", sdp_provisioning_state: "provisioning")
+    user.update_column(:updated_at, 11.minutes.ago) # update_column: must NOT renew the lease
+
+    assert_enqueued_with(job: Solrengine::Sdp::ProvisionWalletJob, args: [ user ]) do
+      user.provision_wallet!
+    end
+  end
+
   # --- retry_provisioning! -----------------------------------------------------
 
   def test_retry_provisioning_resets_failed_and_enqueues
@@ -172,5 +183,35 @@ class WalletOwnerTest < ActiveSupport::TestCase
     end
 
     assert user.reload.wallet_ready?
+  end
+
+  def test_retry_provisioning_resets_stale_provisioning_and_enqueues
+    # Abandoned claim (worker died before settling): retry_provisioning!
+    # re-arms it exactly like a failed row.
+    user = User.create!(
+      email: "a@example.com",
+      sdp_provisioning_state: "provisioning",
+      sdp_provisioning_error: "leftover reason from an earlier failed run"
+    )
+    user.update_column(:updated_at, 11.minutes.ago) # update_column: must NOT renew the lease
+
+    assert_enqueued_with(job: Solrengine::Sdp::ProvisionWalletJob, args: [ user ]) do
+      user.retry_provisioning!
+    end
+
+    user.reload
+    assert user.wallet_pending?
+    assert_nil user.sdp_provisioning_error
+  end
+
+  def test_retry_provisioning_is_a_noop_on_fresh_provisioning
+    # updated_at is "now": a live job owns the row — leave it alone.
+    user = User.create!(email: "a@example.com", sdp_provisioning_state: "provisioning")
+
+    assert_no_enqueued_jobs do
+      refute user.retry_provisioning!
+    end
+
+    assert user.reload.wallet_provisioning?
   end
 end

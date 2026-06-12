@@ -16,6 +16,9 @@ module Solrengine
     #
     #   pending → provisioning → ready | failed
     #   failed  → pending                          (retry_provisioning!)
+    #   provisioning (stale) → pending             (retry_provisioning! — a
+    #     row whose updated_at is past Configuration#provisioning_lease was
+    #     abandoned by a dead worker, never settled by a live one)
     #
     # ProvisionWalletJob drives every transition; "still provisioning" and
     # "permanently wallet-less" are always distinguishable, and a failure
@@ -67,12 +70,25 @@ module Solrengine
         "#{Solrengine::Sdp.configuration.label_namespace}-user-#{id}"
       end
 
+      # A provisioning row whose lease has lapsed: no live job has touched it
+      # within Configuration#provisioning_lease (every claim/retry/settle
+      # renews updated_at), so the worker that claimed it died before
+      # settling. Stale rows are re-enqueueable; fresh ones belong to a live
+      # job and must be left alone.
+      def wallet_provisioning_stale?
+        wallet_provisioning? &&
+          updated_at <= Time.current - Solrengine::Sdp.configuration.provisioning_lease
+      end
+
       # Enqueues provisioning. No-op (with a log line) when the wallet is
-      # already ready or a job currently owns the row; from failed it
+      # already ready or a live job currently owns the row; from failed it
       # re-enqueues — the job's claim accepts failed rows, so an explicit
       # reset via retry_provisioning! is equivalent but also clears the error.
+      # A STALE provisioning row (lease lapsed — the claiming worker died
+      # before settling) also re-enqueues: the job's claim takes over expired
+      # leases, and label adoption makes the re-run double-provision-safe.
       def provision_wallet!
-        if wallet_ready? || wallet_provisioning?
+        if wallet_ready? || (wallet_provisioning? && !wallet_provisioning_stale?)
           Solrengine::Sdp.configuration.logger&.info(
             "[Solrengine::Sdp] provision_wallet! no-op for #{self.class.name}##{id}: " \
             "state is #{wallet_provisioning_state}"
@@ -83,11 +99,12 @@ module Solrengine
         ProvisionWalletJob.perform_later(self)
       end
 
-      # Re-arms a failed row: clears the stored reason, resets to pending, and
-      # enqueues a fresh job. Only valid from failed — anything else is a
-      # no-op returning false.
+      # Re-arms a failed row — or a STALE provisioning row abandoned by a
+      # dead worker: clears the stored reason, resets to pending, and
+      # enqueues a fresh job. Anything else (including provisioning rows a
+      # live job still owns) is a no-op returning false.
       def retry_provisioning!
-        return false unless wallet_failed?
+        return false unless wallet_failed? || wallet_provisioning_stale?
 
         update!(sdp_provisioning_state: "pending", sdp_provisioning_error: nil)
         ProvisionWalletJob.perform_later(self)

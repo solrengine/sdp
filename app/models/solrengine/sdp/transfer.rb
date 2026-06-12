@@ -92,6 +92,23 @@ module Solrengine
           transfer
         end
 
+        # Recovery entry point: re-enqueues TrackTransferJob for unsettled
+        # rows nothing is tracking anymore. Closes the crash window between
+        # create!/submit_to_sdp! and the tracking enqueue, and adopts orphans
+        # after queue data loss. The updated_at guard (two poll intervals)
+        # avoids double-enqueueing rows under ACTIVE tracking — every poll
+        # and settle touches the row, so a row untouched for two intervals
+        # has no live tracker. Returns the count enqueued.
+        def resume_tracking!
+          cutoff = Time.current - (Solrengine::Sdp.configuration.transfer_poll_interval * 2)
+          count = 0
+          unsettled.where(updated_at: ..cutoff).find_each do |transfer|
+            TrackTransferJob.perform_later(transfer)
+            count += 1
+          end
+          count
+        end
+
         def engine_status_for(sdp_status)
           # Unrecognized SDP statuses map to "processing": non-terminal, keep
           # polling — safer than inventing a verdict for a status SDP adds in

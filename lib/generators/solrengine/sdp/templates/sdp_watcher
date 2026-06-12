@@ -112,6 +112,17 @@ while running
     puts "[SdpWatcher] Scan error: #{e.class}: #{e.message}"
   end
 
+  # Transfer-tracking recovery: re-enqueue TrackTransferJob for unsettled
+  # rows nothing is polling anymore (a crash between the row's create! and
+  # the tracking enqueue, or queue data loss). Safe to run every pass — the
+  # model's updated_at guard skips rows under active tracking.
+  begin
+    resumed = Solrengine::Sdp::Transfer.resume_tracking!
+    puts "[SdpWatcher] Resumed tracking for #{resumed} unsettled transfer(s)" if resumed > 0
+  rescue => e
+    puts "[SdpWatcher] Transfer recovery error: #{e.class}: #{e.message}"
+  end
+
   SCAN_INTERVAL.times do
     break unless running
     sleep 1

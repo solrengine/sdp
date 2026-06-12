@@ -13,15 +13,23 @@ module Solrengine
       DEFAULT_BASE_URL = "http://127.0.0.1:8787"
       DEFAULT_EXPIRED_TRANSFER_DEADLINE = 15 * 60 # seconds
       DEFAULT_TRANSFER_POLL_INTERVAL = 3 # seconds — confirmation is usually seconds away
+      DEFAULT_PROVISIONING_LEASE = 10 * 60 # seconds — see provisioning_lease below
 
       attr_writer :api_key, :base_url, :custody_provider, :label_namespace, :logger
+      # provisioning_lease (seconds): how long a wallet-owner row may sit in
+      # "provisioning" untouched before the claim is considered abandoned
+      # (worker died between claim and settle) and another job may take it
+      # over. Any live job renews the row's updated_at well within this
+      # window, so a takeover can only hit a genuinely dead claim.
       attr_accessor :user_class, :expired_transfer_deadline, :transfer_poll_interval,
+                    :provisioning_lease,
                     :broadcast_retry_delay, :broadcast_retries, :broadcast_targets
 
       def initialize
         @user_class = "User"
         @expired_transfer_deadline = DEFAULT_EXPIRED_TRANSFER_DEADLINE
         @transfer_poll_interval = DEFAULT_TRANSFER_POLL_INTERVAL
+        @provisioning_lease = DEFAULT_PROVISIONING_LEASE
         @broadcast_retry_delay = 2
         @broadcast_retries = 3
         # Ordered array of {name:, fetch:, render:} hashes — see Broadcaster.
