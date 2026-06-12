@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ruby-version: [ "3.2", "3.3", "3.4" ]
+    steps:
+      - uses: actions/checkout@v4
+      # Sibling checkouts for the Gemfile path sources. NOTE: solana-sdp and
+      # the realtime subscriber-registry branch are local-only right now —
+      # these clones point at their eventual GitHub homes and CI stays red
+      # until they are pushed.
+      - name: Checkout solana-sdp
+        run: git clone --depth 1 https://github.com/solrengine/solana-sdp.git ../solana-sdp
+      - name: Checkout solrengine-realtime
+        run: git clone --depth 1 https://github.com/solrengine/solrengine-realtime.git ../solrengine-realtime
+      - name: Checkout solrengine-rpc
+        run: git clone --depth 1 https://github.com/solrengine/solrengine-rpc.git ../solrengine-rpc
+      - name: Checkout solrengine-tokens
+        run: git clone --depth 1 https://github.com/solrengine/solrengine-tokens.git ../solrengine-tokens
+      - name: Set up Ruby ${{ matrix.ruby-version }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          bundler-cache: true
+      - name: Run tests
+        run: bundle exec rake test
+
+  rubocop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout solana-sdp
+        run: git clone --depth 1 https://github.com/solrengine/solana-sdp.git ../solana-sdp
+      - name: Checkout solrengine-realtime
+        run: git clone --depth 1 https://github.com/solrengine/solrengine-realtime.git ../solrengine-realtime
+      - name: Checkout solrengine-rpc
+        run: git clone --depth 1 https://github.com/solrengine/solrengine-rpc.git ../solrengine-rpc
+      - name: Checkout solrengine-tokens
+        run: git clone --depth 1 https://github.com/solrengine/solrengine-tokens.git ../solrengine-tokens
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: RuboCop
+        run: bundle exec rubocop
