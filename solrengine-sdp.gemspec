@@ -8,7 +8,7 @@ Gem::Specification.new do |spec|
 
   spec.summary = "Custodial Solana wallets for Rails via the Solana Developer Platform"
   spec.description = "Rails engine for SDP-backed apps: Wallet-per-User provisioning, transfer persistence and tracking, and real-time balance broadcasts built on the solrengine family."
-  spec.homepage = "https://github.com/solrengine/solrengine-sdp"
+  spec.homepage = "https://github.com/solrengine/sdp"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2.0"
 

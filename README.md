@@ -2,7 +2,7 @@
 
 Rails engine for **Wallet-per-User** custodial Solana wallets backed by the [Solana Developer Platform (SDP)](https://github.com/solana-foundation/solana-developer-platform). Your users sign up with an email — the engine provisions an SDP custody wallet for each of them, persists and tracks every transfer to a renderable terminal state, and pushes live balance updates to the browser when money moves on chain.
 
-It composes the SolRengine family: the [solana-sdp](https://github.com/solrengine/solana-sdp) API client underneath, [solrengine-realtime](https://github.com/solrengine/solrengine-realtime) for WebSocket account subscriptions, and (optionally) [solrengine-tokens](https://github.com/solrengine/solrengine-tokens) as a USD price source. This is the "you hold wallets for your users" path; for "your users bring their own wallets", see the rest of the family at [solrengine.org](https://solrengine.org).
+It composes the SolRengine family: the [solana-sdp](https://github.com/solrengine/solana-sdp) API client underneath, [solrengine-realtime](https://github.com/solrengine/realtime) for WebSocket account subscriptions, and (optionally) [solrengine-tokens](https://github.com/solrengine/tokens) as a USD price source. This is the "you hold wallets for your users" path; for "your users bring their own wallets", see the rest of the family at [solrengine.org](https://solrengine.org).
 
 ## Prerequisites
 

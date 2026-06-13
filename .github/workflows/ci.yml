@@ -21,11 +21,11 @@ jobs:
       - name: Checkout solana-sdp
         run: git clone --depth 1 https://github.com/solrengine/solana-sdp.git ../solana-sdp
       - name: Checkout solrengine-realtime
-        run: git clone --depth 1 https://github.com/solrengine/solrengine-realtime.git ../solrengine-realtime
+        run: git clone --depth 1 https://github.com/solrengine/realtime.git ../solrengine-realtime
       - name: Checkout solrengine-rpc
-        run: git clone --depth 1 https://github.com/solrengine/solrengine-rpc.git ../solrengine-rpc
+        run: git clone --depth 1 https://github.com/solrengine/rpc.git ../solrengine-rpc
       - name: Checkout solrengine-tokens
-        run: git clone --depth 1 https://github.com/solrengine/solrengine-tokens.git ../solrengine-tokens
+        run: git clone --depth 1 https://github.com/solrengine/tokens.git ../solrengine-tokens
       - name: Set up Ruby ${{ matrix.ruby-version }}
         uses: ruby/setup-ruby@v1
         with:
@@ -41,11 +41,11 @@ jobs:
       - name: Checkout solana-sdp
         run: git clone --depth 1 https://github.com/solrengine/solana-sdp.git ../solana-sdp
       - name: Checkout solrengine-realtime
-        run: git clone --depth 1 https://github.com/solrengine/solrengine-realtime.git ../solrengine-realtime
+        run: git clone --depth 1 https://github.com/solrengine/realtime.git ../solrengine-realtime
       - name: Checkout solrengine-rpc
-        run: git clone --depth 1 https://github.com/solrengine/solrengine-rpc.git ../solrengine-rpc
+        run: git clone --depth 1 https://github.com/solrengine/rpc.git ../solrengine-rpc
       - name: Checkout solrengine-tokens
-        run: git clone --depth 1 https://github.com/solrengine/solrengine-tokens.git ../solrengine-tokens
+        run: git clone --depth 1 https://github.com/solrengine/tokens.git ../solrengine-tokens
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
