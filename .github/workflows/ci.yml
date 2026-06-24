@@ -14,12 +14,13 @@ jobs:
         ruby-version: [ "3.2", "3.3", "3.4" ]
     steps:
       - uses: actions/checkout@v4
-      # Sibling checkouts for the Gemfile path sources. NOTE: solana-sdp and
-      # the realtime subscriber-registry branch are local-only right now —
-      # these clones point at their eventual GitHub homes and CI stays red
-      # until they are pushed.
+      # Sibling checkouts for the Gemfile path sources.
+      # IN-FLIGHT v0.2: this engine needs solana-sdp ~> 0.2, which lives on the
+      # client's feat/sdp-v0.2 branch (PR #1, intentionally unmerged until the
+      # joint v0.2 release). Pin the clone to that branch. REVERT to the default
+      # branch when solana-sdp 0.2 lands on main (Workstream F).
       - name: Checkout solana-sdp
-        run: git clone --depth 1 https://github.com/solrengine/solana-sdp.git ../solana-sdp
+        run: git clone --depth 1 --branch feat/sdp-v0.2 https://github.com/solrengine/solana-sdp.git ../solana-sdp
       - name: Checkout solrengine-realtime
         run: git clone --depth 1 https://github.com/solrengine/realtime.git ../solrengine-realtime
       - name: Checkout solrengine-rpc
@@ -39,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Checkout solana-sdp
-        run: git clone --depth 1 https://github.com/solrengine/solana-sdp.git ../solana-sdp
+        run: git clone --depth 1 --branch feat/sdp-v0.2 https://github.com/solrengine/solana-sdp.git ../solana-sdp
       - name: Checkout solrengine-realtime
         run: git clone --depth 1 https://github.com/solrengine/realtime.git ../solrengine-realtime
       - name: Checkout solrengine-rpc
