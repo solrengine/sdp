@@ -19,7 +19,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = [ "lib" ]
 
   spec.add_dependency "rails", ">= 7.1"
-  spec.add_dependency "solana-sdp", "~> 0.1"
+  spec.add_dependency "solana-sdp", "~> 0.2"
   spec.add_dependency "solrengine-realtime", "~> 0.2"
 
   # solrengine-tokens is deliberately NOT a dependency: it is an optional

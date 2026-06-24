@@ -41,7 +41,8 @@ module Solrengine
       def client
         @client ||= ::Sdp::Client.new(
           api_key: configuration.validate!.api_key,
-          base_url: configuration.base_url
+          base_url: configuration.base_url,
+          custody_provider: configuration.custody_provider
         )
       end
 

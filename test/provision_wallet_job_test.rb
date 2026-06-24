@@ -71,7 +71,7 @@ class ProvisionWalletJobTest < ActiveSupport::TestCase
 
   def test_adopts_existing_wallet_by_label_without_creating
     user = User.create!(email: "a@example.com")
-    stub_request(:get, WALLETS_URL).to_return(
+    stub_request(:get, WALLETS_URL).with(query: { provider: "privy" }).to_return(
       status: 200,
       headers: JSON_HEADERS,
       body: {
@@ -130,7 +130,7 @@ class ProvisionWalletJobTest < ActiveSupport::TestCase
     # The dead worker's create may have SUCCEEDED before it died — the list
     # returns the wallet by label, and adoption (not a second create) proves
     # takeover can never double-provision.
-    stub_request(:get, WALLETS_URL).to_return(
+    stub_request(:get, WALLETS_URL).with(query: { provider: "privy" }).to_return(
       status: 200, headers: JSON_HEADERS,
       body: {
         data: { wallets: [
@@ -153,7 +153,7 @@ class ProvisionWalletJobTest < ActiveSupport::TestCase
 
   def test_transient_error_keeps_the_claim_and_enqueues_a_retry
     user = User.create!(email: "a@example.com")
-    stub_request(:get, WALLETS_URL).to_return(status: 503)
+    stub_request(:get, WALLETS_URL).with(query: { provider: "privy" }).to_return(status: 503)
 
     Solrengine::Sdp::ProvisionWalletJob.perform_now(user) # retry_on swallows + re-enqueues
 
@@ -182,7 +182,7 @@ class ProvisionWalletJobTest < ActiveSupport::TestCase
   # exception_executions (Rails 6+); executions feeds the claim's resume logic.
   def test_retry_exhaustion_lands_failed_with_the_transport_reason
     user = User.create!(email: "a@example.com")
-    stub_request(:get, WALLETS_URL).to_return(status: 503)
+    stub_request(:get, WALLETS_URL).with(query: { provider: "privy" }).to_return(status: 503)
 
     job = Solrengine::Sdp::ProvisionWalletJob.new(user)
     job.executions = 4
@@ -201,7 +201,7 @@ class ProvisionWalletJobTest < ActiveSupport::TestCase
 
   def test_non_transport_sdp_errors_are_terminal_failed
     user = User.create!(email: "a@example.com")
-    stub_request(:get, WALLETS_URL).to_return(
+    stub_request(:get, WALLETS_URL).with(query: { provider: "privy" }).to_return(
       status: 401,
       headers: JSON_HEADERS,
       body: { error: { code: "UNAUTHORIZED", message: "Invalid API key" }, meta: {} }.to_json
@@ -232,7 +232,7 @@ class ProvisionWalletJobTest < ActiveSupport::TestCase
   private
 
   def stub_empty_wallet_list
-    stub_request(:get, WALLETS_URL).to_return(
+    stub_request(:get, WALLETS_URL).with(query: { provider: "privy" }).to_return(
       status: 200, headers: JSON_HEADERS,
       body: { data: { wallets: [] }, meta: {} }.to_json
     )
