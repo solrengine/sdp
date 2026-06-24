@@ -15,7 +15,7 @@ module Solrengine
       DEFAULT_TRANSFER_POLL_INTERVAL = 3 # seconds — confirmation is usually seconds away
       DEFAULT_PROVISIONING_LEASE = 10 * 60 # seconds — see provisioning_lease below
 
-      attr_writer :api_key, :base_url, :custody_provider, :label_namespace, :logger
+      attr_writer :api_key, :base_url, :custody_provider, :ramp_provider, :label_namespace, :logger
       # provisioning_lease (seconds): how long a wallet-owner row may sit in
       # "provisioning" untouched before the claim is considered abandoned
       # (worker died between claim and settle) and another job may take it
@@ -48,6 +48,13 @@ module Solrengine
 
       def custody_provider
         @custody_provider || ENV["SDP_CUSTODY_PROVIDER"]
+      end
+
+      # Default fiat ramp provider (e.g. "bvnk") for the ramps helper, so apps
+      # don't repeat `provider:` on every on/off-ramp call. nil is fine — the
+      # caller can pass `provider:` per call instead. Sandbox-only in v0.2.
+      def ramp_provider
+        @ramp_provider || ENV["SDP_RAMP_PROVIDER"]
       end
 
       # Prefix for SDP wallet labels ("#{label_namespace}-user-#{id}").

@@ -10,6 +10,7 @@ require_relative "sdp/configuration"
 require_relative "sdp/wallet_owner"
 require_relative "sdp/broadcaster"
 require_relative "sdp/faucet"
+require_relative "sdp/ramps"
 require_relative "sdp/engine" if defined?(Rails::Engine)
 
 module Solrengine
@@ -33,6 +34,7 @@ module Solrengine
       def configure
         yield(configuration)
         @client = nil
+        @ramps = nil
         configuration
       end
 
@@ -46,9 +48,17 @@ module Solrengine
         )
       end
 
+      # Thin ramps helper bound to the configured client + default ramp
+      # provider. Reset alongside the client whenever configure runs.
+      # Sandbox-only in v0.2 (see Solrengine::Sdp::Ramps).
+      def ramps
+        @ramps ||= Ramps.new(client: client, provider: configuration.ramp_provider)
+      end
+
       def reset_configuration!
         @configuration = nil
         @client = nil
+        @ramps = nil
       end
 
       # Pure function over rake task names so the exemption logic is
