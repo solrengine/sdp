@@ -15,6 +15,7 @@ module Solrengine
       STATUSES = %w[created deployed failed].freeze
 
       has_many :mints, class_name: "Solrengine::Sdp::TokenMint", dependent: :destroy
+      has_many :burns, class_name: "Solrengine::Sdp::TokenBurn", dependent: :destroy
 
       validates :name, :symbol, :signing_wallet_id, presence: true
       validates :decimals, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
@@ -65,6 +66,23 @@ module Solrengine
         )
         MintJob.perform_later(mint)
         mint
+      end
+
+      # Records a burn and enqueues BurnJob (never retried). A burn is signed
+      # by the source wallet's owner, so signing_wallet_id is the holder's
+      # custodial wallet (the user), NOT the treasury. Returns the TokenBurn.
+      def burn!(source:, signing_wallet_id:, amount:, memo: nil)
+        burn = burns.create!(
+          source: source,
+          signing_wallet_id: signing_wallet_id,
+          amount: BigDecimal(amount.to_s).to_s("F"),
+          memo: memo,
+          memo_token: "#{TokenBurn::MEMO_TOKEN_PREFIX}#{SecureRandom.hex(8)}",
+          status: "burning",
+          submitted_at: Time.current
+        )
+        BurnJob.perform_later(burn)
+        burn
       end
     end
   end

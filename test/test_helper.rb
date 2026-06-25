@@ -97,6 +97,24 @@ ActiveRecord::Schema.define do
   end
   add_index :solrengine_sdp_token_mints, :memo_token, unique: true
   add_index :solrengine_sdp_token_mints, :status
+
+  create_table :solrengine_sdp_token_burns, force: true do |t|
+    t.references :token, null: false
+    t.string :source, null: false
+    t.string :signing_wallet_id, null: false
+    t.string :amount, null: false
+    t.string :memo
+    t.string :memo_token, null: false
+    t.string :status, null: false, default: "burning"
+    t.string :signature
+    t.string :sdp_transaction_id
+    t.string :sdp_error
+    t.datetime :submitted_at
+    t.datetime :settled_at
+    t.timestamps
+  end
+  add_index :solrengine_sdp_token_burns, :memo_token, unique: true
+  add_index :solrengine_sdp_token_burns, :status
 end
 
 # Dummy app-side user model (the engine's default user_class).
@@ -109,9 +127,11 @@ end
 require_relative "../app/models/solrengine/sdp/transfer"
 require_relative "../app/models/solrengine/sdp/token"
 require_relative "../app/models/solrengine/sdp/token_mint"
+require_relative "../app/models/solrengine/sdp/token_burn"
 require_relative "../app/jobs/solrengine/sdp/provision_wallet_job"
 require_relative "../app/jobs/solrengine/sdp/track_transfer_job"
 require_relative "../app/jobs/solrengine/sdp/mint_job"
+require_relative "../app/jobs/solrengine/sdp/burn_job"
 
 # ENV save/restore for configuration tests.
 module EnvHelper

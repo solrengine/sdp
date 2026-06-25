@@ -135,6 +135,57 @@ module Solrengine
         assert_requested stub, times: 1
         assert mint.reload.minted?
       end
+
+      # -- burn (redeem) ----------------------------------------------------------
+
+      def stub_burn(body)
+        stub_request(:post, "#{ISSUANCE}/tok_1/burn")
+          .to_return(status: 200, headers: JSON_HEADERS, body: body.to_json)
+      end
+
+      def test_burn_records_a_pending_burn_and_enqueues_the_job
+        token = deployed_token
+        assert_enqueued_jobs 1, only: Solrengine::Sdp::BurnJob do
+          burn = token.burn!(source: "user_pubkey", signing_wallet_id: "wal_user", amount: 3)
+          assert burn.burning?
+          assert_equal "3.0", burn.amount
+          assert_equal "wal_user", burn.signing_wallet_id
+        end
+      end
+
+      def test_burn_job_confirms_into_burned
+        token = deployed_token
+        stub = stub_burn(data: { transaction: { id: "tx_b", status: "confirmed", signature: "BurnSig" } }, meta: {})
+
+        perform_enqueued_jobs { token.burn!(source: "user_pubkey", signing_wallet_id: "wal_user", amount: 3) }
+
+        burn = Solrengine::Sdp::TokenBurn.last
+        assert burn.burned?
+        assert_equal "BurnSig", burn.signature
+        assert_requested stub, times: 1
+      end
+
+      def test_burn_read_timeout_lands_unknown_and_is_not_retried
+        token = deployed_token
+        stub = stub_request(:post, "#{ISSUANCE}/tok_1/burn").to_raise(Errno::ECONNRESET)
+
+        perform_enqueued_jobs { token.burn!(source: "u", signing_wallet_id: "wal_user", amount: 1) }
+
+        assert Solrengine::Sdp::TokenBurn.last.unknown?
+        assert_requested stub, times: 1
+      end
+
+      def test_a_burn_is_never_sent_twice
+        token = deployed_token
+        stub = stub_burn(data: { transaction: { id: "tx", status: "confirmed" } }, meta: {})
+
+        burn = token.burn!(source: "u", signing_wallet_id: "wal_user", amount: 1)
+        Solrengine::Sdp::BurnJob.perform_now(burn)
+        Solrengine::Sdp::BurnJob.perform_now(burn)
+
+        assert_requested stub, times: 1
+        assert burn.reload.burned?
+      end
     end
   end
 end

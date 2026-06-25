@@ -26,6 +26,7 @@ module Solrengine
         create_solrengine_sdp_transfers
         create_solrengine_sdp_tokens
         create_solrengine_sdp_token_mints
+        create_solrengine_sdp_token_burns
       ].freeze
 
       # The exact development block `rails new` emits — the only async config
