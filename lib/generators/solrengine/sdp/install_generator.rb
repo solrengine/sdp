@@ -21,7 +21,12 @@ module Solrengine
     class InstallGenerator < Rails::Generators::Base
       source_root File.expand_path("templates", __dir__)
 
-      MIGRATIONS = %w[add_solrengine_sdp_to_users create_solrengine_sdp_transfers].freeze
+      MIGRATIONS = %w[
+        add_solrengine_sdp_to_users
+        create_solrengine_sdp_transfers
+        create_solrengine_sdp_tokens
+        create_solrengine_sdp_token_mints
+      ].freeze
 
       # The exact development block `rails new` emits — the only async config
       # this generator rewrites mechanically. Anything else async-but-custom
