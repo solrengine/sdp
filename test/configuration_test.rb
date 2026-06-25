@@ -41,6 +41,16 @@ class ConfigurationTest < Minitest::Test
     end
   end
 
+  def test_ramp_provider_resolves_from_env_and_nil_is_ok
+    with_env("SDP_RAMP_PROVIDER" => nil) do
+      assert_nil Solrengine::Sdp::Configuration.new.ramp_provider
+    end
+
+    with_env("SDP_RAMP_PROVIDER" => "bvnk") do
+      assert_equal "bvnk", Solrengine::Sdp::Configuration.new.ramp_provider
+    end
+  end
+
   def test_explicit_configure_wins_over_env
     with_env("SDP_API_KEY" => "env-key", "SDP_API_BASE_URL" => "http://env.example") do
       config = Solrengine::Sdp.configure do |c|

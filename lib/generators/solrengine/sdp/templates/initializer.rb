@@ -19,6 +19,11 @@ Solrengine::Sdp.configure do |config|
   # the Rails application name.
   # config.label_namespace = "myapp"
 
+  # Default fiat ramp provider (e.g. "bvnk"). The ramps helper injects it so
+  # you don't repeat `provider:` on every call: Solrengine::Sdp.ramps.onramp_quote(...).
+  # Leave unset to pass `provider:` per call instead.
+  # config.ramp_provider = ENV["SDP_RAMP_PROVIDER"]
+
   # The wallet-owner model (the one including Solrengine::Sdp::WalletOwner).
   # Defaults to "User".
   # config.user_class = "Account"
@@ -42,3 +47,14 @@ Solrengine::Sdp.configure do |config|
   #     } }
   # ]
 end
+
+# Token issuance and fiat ramps (new in v0.2) need no extra config — reach them
+# through the client and the ramps helper:
+#
+#   Solrengine::Sdp.client.create_token(name: "...", symbol: "...", signing_wallet_id: "...")
+#   Solrengine::Sdp.client.mint_token(token_id, signing_wallet_id: "...", destination: "...", amount: "...")
+#   Solrengine::Sdp.ramps.onramp_quote(counterparty_id: "...", destination_wallet: "...",
+#                                      crypto_token: "SOL", fiat_currency: "USD", fiat_amount: "100")
+#
+# Ramps are SANDBOX-ONLY in v0.2 (preview). Mint/burn/deploy are money-path:
+# like transfers they need FEE_PAYMENT_PROVIDER=kora on a self-hosted SDP.

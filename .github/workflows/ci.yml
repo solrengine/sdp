@@ -14,10 +14,8 @@ jobs:
         ruby-version: [ "3.2", "3.3", "3.4" ]
     steps:
       - uses: actions/checkout@v4
-      # Sibling checkouts for the Gemfile path sources. NOTE: solana-sdp and
-      # the realtime subscriber-registry branch are local-only right now —
-      # these clones point at their eventual GitHub homes and CI stays red
-      # until they are pushed.
+      # Sibling checkouts for the Gemfile path sources. solana-sdp ~> 0.2 is on
+      # RubyGems + the default branch as of v0.2.0, so a plain clone resolves.
       - name: Checkout solana-sdp
         run: git clone --depth 1 https://github.com/solrengine/solana-sdp.git ../solana-sdp
       - name: Checkout solrengine-realtime
