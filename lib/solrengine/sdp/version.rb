@@ -2,7 +2,7 @@
 
 module Solrengine
   module Sdp
-    VERSION = "0.2.0"
+    VERSION = "0.3.0"
 
     # The SDP release this engine version is tested against. SDP breaks its
     # API between minors; bump this (and re-verify) on every SDP upgrade.
