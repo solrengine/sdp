@@ -58,7 +58,7 @@ module Solrengine
       def mint!(destination:, amount:, memo: nil)
         mint = mints.create!(
           destination: destination,
-          amount: BigDecimal(amount.to_s).to_s("F"),
+          amount: normalize_amount(amount),
           memo: memo,
           memo_token: "#{TokenMint::MEMO_TOKEN_PREFIX}#{SecureRandom.hex(8)}",
           status: "minting",
@@ -75,7 +75,7 @@ module Solrengine
         burn = burns.create!(
           source: source,
           signing_wallet_id: signing_wallet_id,
-          amount: BigDecimal(amount.to_s).to_s("F"),
+          amount: normalize_amount(amount),
           memo: memo,
           memo_token: "#{TokenBurn::MEMO_TOKEN_PREFIX}#{SecureRandom.hex(8)}",
           status: "burning",
@@ -83,6 +83,17 @@ module Solrengine
         )
         BurnJob.perform_later(burn)
         burn
+      end
+
+      private
+
+      # BigDecimal#to_s("F") always renders a trailing ".0" — so a whole "10"
+      # becomes "10.0", which a 0-decimal token refuses ("Amount has too many
+      # decimal places"). Drop trailing fractional zeros (and the now-bare
+      # decimal point) so whole amounts go out as "10". SDP still enforces the
+      # token's decimals, so an over-precise amount surfaces as a failed write.
+      def normalize_amount(value)
+        BigDecimal(value.to_s).to_s("F").sub(/\.?0+\z/, "")
       end
     end
   end

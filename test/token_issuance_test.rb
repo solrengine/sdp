@@ -34,6 +34,18 @@ module Solrengine
           signing_wallet_id: "wal_treasury", sdp_token_id: "tok_1", mint_address: "Mint1", status: "deployed")
       end
 
+      # Records the wallet addresses Broadcaster.call is invoked with while the
+      # block runs, restoring the real method after (no minitest/mock dep).
+      def capturing_broadcasts
+        rung = []
+        original = Solrengine::Sdp::Broadcaster.method(:call)
+        Solrengine::Sdp::Broadcaster.singleton_class.send(:define_method, :call) { |addr, *| rung << addr }
+        yield
+        rung
+      ensure
+        Solrengine::Sdp::Broadcaster.singleton_class.send(:define_method, :call, original)
+      end
+
       def stub_mint(body)
         stub_request(:post, "#{ISSUANCE}/tok_1/mint")
           .to_return(status: 200, headers: JSON_HEADERS, body: body.to_json)
@@ -80,8 +92,23 @@ module Solrengine
         assert_enqueued_jobs 1, only: Solrengine::Sdp::MintJob do
           mint = token.mint!(destination: "user_wallet", amount: 100)
           assert mint.minting?
-          assert_equal "100.0", mint.amount
+          # Whole amounts go out WITHOUT a trailing ".0" — SDP rejects "100.0"
+          # for a 0-decimal token ("Amount has too many decimal places").
+          assert_equal "100", mint.amount
           assert_equal token, mint.token
+        end
+      end
+
+      def test_mint_amount_is_normalized_to_a_clean_decimal_string
+        token = deployed_token
+        # whole numbers (int, float, decimal-string) never carry a ".0";
+        # genuine fractions keep their places but shed trailing zeros.
+        {
+          10 => "10", 50.0 => "50", "1000" => "1000",
+          "1.50" => "1.5", "0.5" => "0.5"
+        }.each do |given, expected|
+          assert_equal expected, token.mint!(destination: "w", amount: given).amount,
+            "amount #{given.inspect} should store as #{expected.inspect}"
         end
       end
 
@@ -136,6 +163,29 @@ module Solrengine
         assert mint.reload.minted?
       end
 
+      def test_mint_job_rings_the_balance_doorbell_for_the_destination_on_success
+        token = deployed_token
+        stub_mint(data: { transaction: { id: "tx_1", status: "confirmed" } }, meta: {})
+        mint = token.mint!(destination: "UserWallet", amount: 5)
+
+        rung = capturing_broadcasts { Solrengine::Sdp::MintJob.perform_now(mint) }
+
+        assert mint.reload.minted?
+        assert_equal [ "UserWallet" ], rung, "a confirmed mint should ring the destination's balance doorbell"
+      end
+
+      def test_mint_job_does_not_broadcast_when_the_mint_is_not_minted
+        token = deployed_token
+        stub_request(:post, "#{ISSUANCE}/tok_1/mint")
+          .to_return(status: 400, headers: JSON_HEADERS, body: { error: { code: "BAD_REQUEST", message: "no" }, meta: {} }.to_json)
+        mint = token.mint!(destination: "UserWallet", amount: 5)
+
+        rung = capturing_broadcasts { Solrengine::Sdp::MintJob.perform_now(mint) }
+
+        assert mint.reload.failed?
+        assert_empty rung, "a failed mint must not broadcast"
+      end
+
       # -- burn (redeem) ----------------------------------------------------------
 
       def stub_burn(body)
@@ -148,7 +198,7 @@ module Solrengine
         assert_enqueued_jobs 1, only: Solrengine::Sdp::BurnJob do
           burn = token.burn!(source: "user_pubkey", signing_wallet_id: "wal_user", amount: 3)
           assert burn.burning?
-          assert_equal "3.0", burn.amount
+          assert_equal "3", burn.amount
           assert_equal "wal_user", burn.signing_wallet_id
         end
       end
@@ -185,6 +235,17 @@ module Solrengine
 
         assert_requested stub, times: 1
         assert burn.reload.burned?
+      end
+
+      def test_burn_job_rings_the_balance_doorbell_for_the_source_on_success
+        token = deployed_token
+        stub_burn(data: { transaction: { id: "tx_b", status: "confirmed" } }, meta: {})
+        burn = token.burn!(source: "HolderWallet", signing_wallet_id: "wal_user", amount: 3)
+
+        rung = capturing_broadcasts { Solrengine::Sdp::BurnJob.perform_now(burn) }
+
+        assert burn.reload.burned?
+        assert_equal [ "HolderWallet" ], rung, "a confirmed burn should ring the source's balance doorbell"
       end
     end
   end

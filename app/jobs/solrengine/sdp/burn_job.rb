@@ -14,6 +14,17 @@ module Solrengine
         return unless burn.claim! # false → already attempted; never re-send
 
         burn.submit_to_sdp!
+        # See MintJob: the burn is its own doorbell, so ring the source
+        # wallet's balance broadcast directly when the burn settles.
+        broadcast_balance(burn.source) if burn.burned?
+      end
+
+      private
+
+      def broadcast_balance(wallet_address)
+        Broadcaster.call(wallet_address)
+      rescue StandardError => e
+        Rails.logger&.warn("[Solrengine::Sdp::BurnJob] post-burn broadcast failed: #{e.class}: #{e.message}")
       end
     end
   end

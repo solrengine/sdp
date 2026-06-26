@@ -24,6 +24,21 @@ module Solrengine
         return unless mint.claim! # false → already attempted; never re-send
 
         mint.submit_to_sdp!
+        # App-initiated issuance is its own doorbell. The chain-WebSocket
+        # watcher only sees a wallet's native account, not the token ATA a
+        # mint credits, so it never rings for an earn — but WE know the mint
+        # just landed. Ring the balance broadcast directly (every earn,
+        # including the first). A broadcast failure must never fail a settled
+        # mint: the money already moved.
+        broadcast_balance(mint.destination) if mint.minted?
+      end
+
+      private
+
+      def broadcast_balance(wallet_address)
+        Broadcaster.call(wallet_address)
+      rescue StandardError => e
+        Rails.logger&.warn("[Solrengine::Sdp::MintJob] post-mint broadcast failed: #{e.class}: #{e.message}")
       end
     end
   end
